@@ -10,6 +10,10 @@
 #define LCD_RW  13  // (Phy - 13) - (LCD - 5)
 #define LCD_E   15  // (Phy - 15) - (LCD - 6)
 
+// Ultrasonic
+#define TRIG 16
+#define EHCO 18
+
 void clcd_config(void);
 void clcd_init(void);  // LCD 초기화 함수 선언
 void clcd_write(unsigned char rs, char data);  // LCD에 데이터 쓰기 함수 선언
@@ -19,72 +23,47 @@ int lcd_data[4] = {LCD_D4, LCD_D5, LCD_D6, LCD_D7};  // LCD 데이터 핀 배열
 
 int main()
 {
+    unsigned int start_time = 0, end_time = 0;
+    double distance = 0.0;
+    char str_distance[30]; // sprintf로 변환한 문자열을 저장할 배열
+
     // wiringPi 라이브러리 초기화 (Physical 핀 번호 기준)
     if(wiringPiSetupPhys() == -1) return -1;  // 실패시 -1 리턴
 
-    clcd_config(); // gpio 핀 설정
+    pinMode(TRIG, OUTPUT); // 출력 // 발신
+    pinMode(EHCO, INPUT); // 입력 // 수신
+    digitalWrite(TRIG, LOW); // 초기화
 
+    // clcd
+    clcd_config(); // gpio 핀 설정
     clcd_init(); // LCD 초기화
 
-    // 문자열을 LCD에 출력
-    // clcd_write(1, 'H');
-    // clcd_write(1, 'e');
-    // clcd_write(1, 'l');
-    // clcd_write(1, 'l');
-    // clcd_write(1, 'o');
-    // clcd_write(1, 'A');
-    // clcd_write(1, 'P');
-    // clcd_write(1, 'P');
-    // clcd_write(1, 'L');
-    // clcd_write(1, 'E');
-
-    clcd_string("Hello World!");
+    clcd_string("Ultrasonic!");
     clcd_write(0, 0xC0); // 1100 0000 위치로 이동
-    clcd_string("I Like Apple!");
 
     while (1)
     {
-        for (int i = 0; i < 4; i++)
-        {
-            delay(1000);
-            clcd_write(0, 0x18); // Cursor or display shift // 0001 1000
-        }
+        digitalWrite(TRIG, HIGH);
+        delayMicroseconds(10);
+        digitalWrite(TRIG, LOW);
 
-        for (int i = 0; i < 4; i++)
-        {
-            delay(1000);
-            clcd_write(0, 0x1C); // Cursor or display shift // 0001 1100
-        }
+        while (digitalRead(EHCO) == LOW); // HIGH가 입력될 때까지 대기
+        start_time = micros();
+
+        while (digitalRead(EHCO) == HIGH); // LOW가 입력될 때까지 대기
+        end_time = micros();
+        
+        // 마이크로초(microsecond, μs) or 마이크로세컨드 : 백만 분의 1초
+        distance = (end_time - start_time) / 58.0; // 공식: uS / 58 = centimeters
+
+        printf("distance %.2f cm\n", distance);
+        sprintf(str_distance, "%6.2fcm", distance);
+        clcd_write(0, 0xC0);
+        clcd_string(str_distance);
+
+        delay(1000); // 1초마다 거리 측정
         
     }
-    
-
-
-    /*
-        A 라는 글자를 보여주기
-        A는 아스키코드로 65이다.
-        65는 2진수로 0100 0001 이다.
-    */
-    // digitalWrite(LCD_RS, HIGH);
-    // // HIGH bits       
-    // digitalWrite(lcd_data[0], LOW);
-    // digitalWrite(lcd_data[1], LOW);
-    // digitalWrite(lcd_data[2], HIGH);
-    // digitalWrite(lcd_data[3], LOW);
-    // digitalWrite(LCD_E, HIGH);
-    // delayMicroseconds(1);
-    // digitalWrite(LCD_E, LOW);
-    // delayMicroseconds(1);
-    // // LOW bits
-    // digitalWrite(lcd_data[0], HIGH);
-    // digitalWrite(lcd_data[1], LOW);
-    // digitalWrite(lcd_data[2], LOW);
-    // digitalWrite(lcd_data[3], LOW);
-    // digitalWrite(LCD_E, HIGH);
-    // delayMicroseconds(1);
-    // digitalWrite(LCD_E, LOW); 
-
-
 
     // 무한 루프 (LCD 출력 이후 프로그램이 종료되지 않도록)
     while(1) {
@@ -137,10 +116,14 @@ void clcd_write(unsigned char rs, char data)
     delayMicroseconds(2);  // 짧은 시간 대기 (이후 신호를 안정적으로 전송하기 위함)
 
     // 상위 4비트 데이터 전송
-    digitalWrite(lcd_data[0], (data>>4) & 0x01);
-    digitalWrite(lcd_data[1], (data>>5) & 0x01);
-    digitalWrite(lcd_data[2], (data>>6) & 0x01);
-    digitalWrite(lcd_data[3], (data>>7) & 0x01);
+    for (int i = 0; i < 4; i++)
+    {
+        digitalWrite(lcd_data[i], (data>>(i+4)) & 0x01); // data & (0x01<<(i+4))    
+    }
+    // digitalWrite(lcd_data[0], (data>>4) & 0x01); // data & (0x01<<4)
+    // digitalWrite(lcd_data[1], (data>>5) & 0x01); // data & (0x01<<5)
+    // digitalWrite(lcd_data[2], (data>>6) & 0x01); // data & (0x01<<6)
+    // digitalWrite(lcd_data[3], (data>>7) & 0x01); // data & (0x01<<7)
 
     digitalWrite(LCD_E, HIGH);  // E 핀 HIGH로 설정 (데이터 전송 시작)
     delayMicroseconds(2);  // 데이터가 전송될 시간을 기다림
@@ -149,10 +132,14 @@ void clcd_write(unsigned char rs, char data)
     delayMicroseconds(2);  // 잠시 대기 후, 하위 4비트 데이터 전송 준비
 
     // 하위 4비트 데이터 전송
-    digitalWrite(lcd_data[0], (data>>0) & 0x01);
-    digitalWrite(lcd_data[1], (data>>1) & 0x01);
-    digitalWrite(lcd_data[2], (data>>2) & 0x01);
-    digitalWrite(lcd_data[3], (data>>3) & 0x01);
+    for (int i = 0; i < 4; i++)
+    {
+        digitalWrite(lcd_data[i], (data>>i) & 0x01); // data & (0x01<<(i))    
+    }
+    // digitalWrite(lcd_data[0], (data>>0) & 0x01); // data & (0x01<<0)
+    // digitalWrite(lcd_data[1], (data>>1) & 0x01); // data & (0x01<<1)
+    // digitalWrite(lcd_data[2], (data>>2) & 0x01); // data & (0x01<<2)
+    // digitalWrite(lcd_data[3], (data>>3) & 0x01); // data & (0x01<<3)
 
     digitalWrite(LCD_E, HIGH);  // E 핀 HIGH로 설정 (하위 데이터 전송 시작)
     delayMicroseconds(2);  // 데이터가 전송될 시간을 기다림
